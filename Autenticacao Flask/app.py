@@ -1,6 +1,7 @@
 from database import db
 from models.user import User
 from flask import Flask, request, jsonify
+from bcrypt import hashpw, checkpw, gensalt
 from flask_login import LoginManager, login_user, current_user, login_required, logout_user
 
 app = Flask(__name__)
@@ -27,8 +28,10 @@ def login():
 
     if username and password:
         user_db = User.query.filter_by(username=username).first() # retornando o primeiro objeto User de acordo com o username fornecido
+        print(user_db)
+        result = checkpw(str.encode(password), user_db.password)
 
-        if user_db and user_db.password == password:
+        if user_db and result:
             login_user(user_db) # salva o ID do usuário na sessão
             print(current_user.is_authenticated)
 
@@ -49,14 +52,52 @@ def create_user():
     data = request.json
     username = data['username']
     password = data['password']
+    role = data['role']
 
     if username and password:
-        user = User(username=username, password=password)
+        hashed_password = hashpw(str.encode(password), gensalt())
+        user = User(username=username, password=hashed_password, role=role)
         db.session.add(user)
         db.session.commit()
         return jsonify({'message': 'Usuário cadastrado com sucesso'})
     
     return jsonify({'message': 'Dados inválidos'}), 400
+
+
+@app.route('/user/<int:user_id>', methods=['PUT'])
+@login_required
+def update_user(user_id):
+    user = User.query.get(user_id)
+    data = request.json
+    password = data['password']
+
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'message': 'Não possui autorização'}), 403
+
+    if user and password:
+        user.password = password
+        db.session.commit()
+        return jsonify({'message': f'Usuário {user_id} atualizado com sucesos'})
+    
+    return jsonify({'message': 'Usuário não encontrado'}), 404
+
+
+@app.route('/user/<int:user_id>', methods=['DELETE'])
+@login_required
+def delete_user(user_id):
+    user = User.query.get(user_id)
+    if user.id == current_user.id:
+        return jsonify({'messsage': 'Não permitido deleção'}), 403
+    
+    if user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'message': 'Não possui autorização'}), 403 
+    
+    if user:
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({'message', f'Usuário {user_id} deletado com sucesso'})
+    
+    return jsonify({'message', f'Usuário {user_id} não encontrado'}), 404
 
 
 if __name__ == '__main__':
